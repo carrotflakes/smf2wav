@@ -24,6 +24,7 @@ fn main() {
             smf::Event::On { channel, .. } => *channel,
             smf::Event::Off { channel, .. } => *channel,
             smf::Event::Pan { channel, .. } => *channel,
+            smf::Event::Tempo { .. } => 0,
         })
         .max()
         .unwrap()
@@ -32,6 +33,8 @@ fn main() {
         .collect();
     let mut notes: Vec<Note> = Vec::new();
     let sample_rate: u32 = 44100;
+    let mut tick = 0.0;
+    let mut tempo = 120.0;
     'main: for i in 0..sample_rate * 60 * 10 {
         let (mut l, mut r) = (0.0, 0.0);
         for note in &mut notes {
@@ -45,6 +48,7 @@ fn main() {
         }
         writer.write(l, r);
 
+        tick += tempo as f64 / 60.0 / sample_rate as f64;
         let time = i as f64 / sample_rate as f64;
         loop {
             let e = if let Some(e) = event_it.peek() {
@@ -52,20 +56,19 @@ fn main() {
             } else {
                 break 'main;
             };
-            let etime = e.time();
-            if time < etime {
+            if tick < e.tick() {
                 break;
             }
 
             match e {
                 smf::Event::On {
-                    time: _,
+                    tick: _,
                     channel,
                     notenum,
                     velocity,
                 } => {
                     notes.push(Note {
-                        start: etime,
+                        start: time,
                         channel: *channel,
                         notenum: *notenum,
                         phase: 0.0,
@@ -75,7 +78,7 @@ fn main() {
                     });
                 }
                 smf::Event::Off {
-                    time: _,
+                    tick: _,
                     channel,
                     notenum,
                 } => {
@@ -87,11 +90,14 @@ fn main() {
                     }
                 }
                 smf::Event::Pan {
-                    time: _,
+                    tick: _,
                     channel,
                     pan,
                 } => {
                     channels[*channel as usize].pan = *pan;
+                }
+                smf::Event::Tempo { tick: _, tempo: t } => {
+                    tempo = *t;
                 }
             }
             event_it.next();
