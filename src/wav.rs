@@ -12,8 +12,12 @@ impl Writer {
     }
 
     pub fn write(&mut self, sample1: f32, sample2: f32) {
-        self.0.write_sample((sample1 * std::i16::MAX as f32) as i16).unwrap();
-        self.0.write_sample((sample2 * std::i16::MAX as f32) as i16).unwrap();
+        self.0
+            .write_sample((sample1 * std::i16::MAX as f32) as i16)
+            .unwrap();
+        self.0
+            .write_sample((sample2 * std::i16::MAX as f32) as i16)
+            .unwrap();
     }
 
     pub fn finish(self) {

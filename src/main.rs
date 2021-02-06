@@ -1,5 +1,3 @@
-// use std::fmt::write;
-
 mod smf;
 mod wav;
 
@@ -20,18 +18,25 @@ fn main() {
     let events = smf::load("youkoso.mid");
     let mut writer = wav::Writer::new("output.wav");
     let mut event_it = events.iter().peekable();
-    let mut channels: Vec<Channel> = (0..events.iter().map(|e| match e {
-        smf::Event::On { channel, .. } => {*channel}
-        smf::Event::Off { channel, .. } => {*channel}
-        smf::Event::Pan { channel, .. } => {*channel}
-    }).max().unwrap() + 1).map(|_| Channel { pan: 0.0 }).collect();
+    let mut channels: Vec<Channel> = (0..events
+        .iter()
+        .map(|e| match e {
+            smf::Event::On { channel, .. } => *channel,
+            smf::Event::Off { channel, .. } => *channel,
+            smf::Event::Pan { channel, .. } => *channel,
+        })
+        .max()
+        .unwrap()
+        + 1)
+        .map(|_| Channel { pan: 0.0 })
+        .collect();
     let mut notes: Vec<Note> = Vec::new();
     let sample_rate: u32 = 44100;
     'main: for i in 0..sample_rate * 60 * 10 {
         let (mut l, mut r) = (0.0, 0.0);
         for note in &mut notes {
             // sample += (note.phase * std::f32::consts::PI * 2.0).sin() * note.gain;
-            let s = if note.phase < 0.5 {1.0} else {-1.0} * note.gain;
+            let s = if note.phase < 0.5 { 1.0 } else { -1.0 } * note.gain;
             let (ll, rr) = panning(channels[note.channel as usize].pan, s);
             l += ll;
             r += rr;
@@ -47,23 +52,33 @@ fn main() {
             } else {
                 break 'main;
             };
-            let etime = e.time() as f64 / 960.0;
+            let etime = e.time();
             if time < etime {
                 break;
             }
 
             match e {
-                smf::Event::On { time: _, channel, notenum, velocity } => {
+                smf::Event::On {
+                    time: _,
+                    channel,
+                    notenum,
+                    velocity,
+                } => {
                     notes.push(Note {
                         start: etime,
                         channel: *channel,
                         notenum: *notenum,
                         phase: 0.0,
-                        d_phase: 440.0 * 2.0f32.powf((*notenum as f32 - 69.0) / 12.0) / sample_rate as f32,
+                        d_phase: 440.0 * 2.0f32.powf((*notenum as f32 - 69.0) / 12.0)
+                            / sample_rate as f32,
                         gain: *velocity * 0.05,
                     });
                 }
-                smf::Event::Off { time: _, channel, notenum } => {
+                smf::Event::Off {
+                    time: _,
+                    channel,
+                    notenum,
+                } => {
                     for i in 0..notes.len() {
                         if notes[i].channel == *channel && notes[i].notenum == *notenum {
                             notes.remove(i);
@@ -71,7 +86,11 @@ fn main() {
                         }
                     }
                 }
-                smf::Event::Pan { time: _, channel, pan } => {
+                smf::Event::Pan {
+                    time: _,
+                    channel,
+                    pan,
+                } => {
                     channels[*channel as usize].pan = *pan;
                 }
             }
