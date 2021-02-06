@@ -1,6 +1,8 @@
 mod smf;
 mod wav;
 
+use smf::Event;
+
 struct Channel {
     volume: f32,
     pan: f32,
@@ -15,53 +17,57 @@ struct Note {
     gain: f32,
 }
 
-fn main() {
-    let events = smf::load("youkoso.mid");
-    let mut writer = wav::Writer::new("output.wav");
-    let mut event_it = events.iter().peekable();
-    let mut channels: Vec<Channel> = (0..events
-        .iter()
-        .map(|e| match e {
-            smf::Event::On { channel, .. } => *channel,
-            smf::Event::Off { channel, .. } => *channel,
-            smf::Event::Volume { channel, .. } => *channel,
-            smf::Event::Pan { channel, .. } => *channel,
-            smf::Event::Tempo { .. } => 0,
-        })
-        .max()
-        .unwrap()
-        + 1)
-        .map(|_| Channel { volume: 100.0 / 127.0, pan: 0.0 })
-        .collect();
-    let mut notes: Vec<Note> = Vec::new();
-    let sample_rate: u32 = 44100;
-    let mut tick = 0.0;
-    let mut tempo = 120.0;
-    'main: for i in 0..sample_rate * 60 * 10 {
-        let time = i as f64 / sample_rate as f64;
-        let (mut l, mut r) = (0.0, 0.0);
-        for note in &mut notes {
-            // let s = (note.phase * std::f32::consts::PI * 2.0).sin();
-            let s = if note.phase < 0.5 { 1.0 } else { -1.0 };
-            let channel = &channels[note.channel as usize];
-            let env = 0.8 / (1.0 + (time - note.start) * 4.0) as f32 + 0.2;
-            let s = s * channel.volume * note.gain * env * 0.1;
-            let (ll, rr) = panning(channel.pan, s);
-            l += ll;
-            r += rr;
-            note.phase += note.d_phase;
-            note.phase = note.phase.fract();
-        }
-        writer.write(l, r);
+struct Context {
+    sample_rate: usize,
+    events: Vec<Event>,
+    i: usize,
+    channels: Vec<Channel>,
+    notes: Vec<Note>,
+    time: f64,
+    tempo: f64,
+    tick: f64,
+}
 
-        tick += tempo as f64 / 60.0 / sample_rate as f64;
+impl Context {
+    pub fn new(events: Vec<Event>) -> Self {
+        let channel_num = events
+            .iter()
+            .map(|e| match e {
+                smf::Event::On { channel, .. } => *channel,
+                smf::Event::Off { channel, .. } => *channel,
+                smf::Event::Volume { channel, .. } => *channel,
+                smf::Event::Pan { channel, .. } => *channel,
+                smf::Event::Tempo { .. } => 0,
+            })
+            .max()
+            .unwrap()
+            + 1;
+        let channels: Vec<Channel> = (0..channel_num)
+            .map(|_| Channel {
+                volume: 100.0 / 127.0,
+                pan: 0.0,
+            })
+            .collect();
+        Context {
+            sample_rate: 44100,
+            events,
+            i: 0,
+            channels,
+            notes: Vec::new(),
+            time: 0.0,
+            tempo: 120.0,
+            tick: 0.0,
+        }
+    }
+
+    fn proc_event(&mut self) {
         loop {
-            let e = if let Some(e) = event_it.peek() {
+            let e = if let Some(e) = self.events.get(self.i) {
                 e
             } else {
-                break 'main;
+                return;
             };
-            if tick < e.tick() {
+            if self.tick < e.tick() {
                 break;
             }
 
@@ -72,13 +78,13 @@ fn main() {
                     notenum,
                     velocity,
                 } => {
-                    notes.push(Note {
-                        start: time,
+                    self.notes.push(Note {
+                        start: self.time,
                         channel: *channel,
                         notenum: *notenum,
                         phase: 0.0,
                         d_phase: 440.0 * 2.0f32.powf((*notenum as f32 - 69.0) / 12.0)
-                            / sample_rate as f32,
+                            / self.sample_rate as f32,
                         gain: *velocity * 0.05,
                     });
                 }
@@ -87,9 +93,9 @@ fn main() {
                     channel,
                     notenum,
                 } => {
-                    for i in 0..notes.len() {
-                        if notes[i].channel == *channel && notes[i].notenum == *notenum {
-                            notes.remove(i);
+                    for i in 0..self.notes.len() {
+                        if self.notes[i].channel == *channel && self.notes[i].notenum == *notenum {
+                            self.notes.remove(i);
                             break;
                         }
                     }
@@ -99,21 +105,59 @@ fn main() {
                     channel,
                     volume,
                 } => {
-                    channels[*channel as usize].volume = *volume;
+                    self.channels[*channel as usize].volume = *volume;
                 }
                 smf::Event::Pan {
                     tick: _,
                     channel,
                     pan,
                 } => {
-                    channels[*channel as usize].pan = *pan;
+                    self.channels[*channel as usize].pan = *pan;
                 }
                 smf::Event::Tempo { tick: _, tempo: t } => {
-                    tempo = *t;
+                    self.tempo = *t;
                 }
             }
-            event_it.next();
+            self.i += 1;
         }
+    }
+
+    pub fn sample(&mut self, time: f64) -> (f32, f32) {
+        self.time = time;
+        self.proc_event();
+        let (mut l, mut r) = (0.0, 0.0);
+        for note in &mut self.notes {
+            // let s = (note.phase * std::f32::consts::PI * 2.0).sin();
+            let s = if note.phase < 0.5 { 1.0 } else { -1.0 };
+            let channel = &self.channels[note.channel as usize];
+            let env = 0.8 / (1.0 + (self.time - note.start) * 4.0) as f32 + 0.2;
+            let s = s * channel.volume * note.gain * env * 0.1;
+            let (ll, rr) = panning(channel.pan, s);
+            l += ll;
+            r += rr;
+            note.phase += note.d_phase;
+            note.phase = note.phase.fract();
+        }
+        self.tick += self.tempo as f64 / 60.0 / self.sample_rate as f64;
+        (l, r)
+    }
+
+    pub fn is_end(&self) -> bool {
+        self.i == self.events.len()
+    }
+}
+
+fn main() {
+    let events = smf::load("youkoso.mid");
+    let mut writer = wav::Writer::new("output.wav");
+    let sample_rate: u32 = 44100;
+    let mut context = Context::new(events);
+    for i in 0..sample_rate * 60 * 10 {
+        if context.is_end() {
+            break;
+        }
+        let (l, r) = context.sample(i as f64 / sample_rate as f64);
+        writer.write(l, r);
     }
     writer.finish();
     println!("end ;)");
