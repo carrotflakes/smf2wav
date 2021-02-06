@@ -36,10 +36,12 @@ fn main() {
     let mut tick = 0.0;
     let mut tempo = 120.0;
     'main: for i in 0..sample_rate * 60 * 10 {
+        let time = i as f64 / sample_rate as f64;
         let (mut l, mut r) = (0.0, 0.0);
         for note in &mut notes {
             // sample += (note.phase * std::f32::consts::PI * 2.0).sin() * note.gain;
-            let s = if note.phase < 0.5 { 1.0 } else { -1.0 } * note.gain;
+            let env = 0.8 / (1.0 + (time - note.start) * 4.0) as f32 + 0.2;
+            let s = if note.phase < 0.5 { 1.0 } else { -1.0 } * note.gain * env;
             let (ll, rr) = panning(channels[note.channel as usize].pan, s);
             l += ll;
             r += rr;
@@ -49,7 +51,6 @@ fn main() {
         writer.write(l, r);
 
         tick += tempo as f64 / 60.0 / sample_rate as f64;
-        let time = i as f64 / sample_rate as f64;
         loop {
             let e = if let Some(e) = event_it.peek() {
                 e
