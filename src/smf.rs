@@ -13,6 +13,11 @@ pub enum Event {
         channel: u32,
         notenum: u32,
     },
+    Volume {
+        tick: f64,
+        channel: u32,
+        volume: f32,
+    },
     Pan {
         tick: f64,
         channel: u32,
@@ -29,6 +34,7 @@ impl Event {
         match self {
             Event::On { tick, .. } => *tick,
             Event::Off { tick, .. } => *tick,
+            Event::Volume { tick, .. } => *tick,
             Event::Pan { tick, .. } => *tick,
             Event::Tempo { tick, .. } => *tick,
         }
@@ -68,6 +74,13 @@ pub fn load(mid: &str) -> Vec<Event> {
                     }
                     MidiMessage::Aftertouch { key: _, vel: _ } => {}
                     MidiMessage::Controller { controller, value } => match controller.as_int() {
+                        7 => {
+                            events.push(Event::Volume {
+                                tick: beat as f64 / tpb as f64,
+                                channel: channel.as_int() as u32,
+                                volume: value.as_int() as f32 / 127.0,
+                            });
+                        }
                         10 => {
                             events.push(Event::Pan {
                                 tick: beat as f64 / tpb as f64,

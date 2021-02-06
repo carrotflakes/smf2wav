@@ -2,6 +2,7 @@ mod smf;
 mod wav;
 
 struct Channel {
+    volume: f32,
     pan: f32,
 }
 
@@ -23,13 +24,14 @@ fn main() {
         .map(|e| match e {
             smf::Event::On { channel, .. } => *channel,
             smf::Event::Off { channel, .. } => *channel,
+            smf::Event::Volume { channel, .. } => *channel,
             smf::Event::Pan { channel, .. } => *channel,
             smf::Event::Tempo { .. } => 0,
         })
         .max()
         .unwrap()
         + 1)
-        .map(|_| Channel { pan: 0.0 })
+        .map(|_| Channel { volume: 100.0 / 127.0, pan: 0.0 })
         .collect();
     let mut notes: Vec<Note> = Vec::new();
     let sample_rate: u32 = 44100;
@@ -39,10 +41,12 @@ fn main() {
         let time = i as f64 / sample_rate as f64;
         let (mut l, mut r) = (0.0, 0.0);
         for note in &mut notes {
-            // sample += (note.phase * std::f32::consts::PI * 2.0).sin() * note.gain;
+            // let s = (note.phase * std::f32::consts::PI * 2.0).sin();
+            let s = if note.phase < 0.5 { 1.0 } else { -1.0 };
+            let channel = &channels[note.channel as usize];
             let env = 0.8 / (1.0 + (time - note.start) * 4.0) as f32 + 0.2;
-            let s = if note.phase < 0.5 { 1.0 } else { -1.0 } * note.gain * env;
-            let (ll, rr) = panning(channels[note.channel as usize].pan, s);
+            let s = s * channel.volume * note.gain * env * 0.1;
+            let (ll, rr) = panning(channel.pan, s);
             l += ll;
             r += rr;
             note.phase += note.d_phase;
@@ -89,6 +93,13 @@ fn main() {
                             break;
                         }
                     }
+                }
+                smf::Event::Volume {
+                    tick: _,
+                    channel,
+                    volume,
+                } => {
+                    channels[*channel as usize].volume = *volume;
                 }
                 smf::Event::Pan {
                     tick: _,
